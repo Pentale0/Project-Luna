@@ -8,6 +8,36 @@
   </head>
   <body>
     <div id="app"></div>
+
+    <!-- HUD overlay: sits on top of the 3D canvas. Pointer events pass through
+         to the canvas except on the actual controls. -->
+    <div id="hud">
+      <div id="search">
+        <input
+          id="search-input"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Search a star, planet or place…"
+        />
+        <div id="search-results" class="hidden"></div>
+      </div>
+
+      <div id="info" class="hidden">
+        <button id="info-close" aria-label="Close">×</button>
+        <div id="info-body"></div>
+      </div>
+
+      <div id="hint">Drag to orbit · Scroll to zoom · Click any object</div>
+      <div id="legend">
+        <span><i class="dot star"></i> star</span>
+        <span><i class="dot planet"></i> exoplanet host</span>
+        <span><i class="dot solar"></i> Solar System</span>
+      </div>
+    </div>
+
+    <div id="loading"><div class="spinner"></div><span>Charting the galaxy…</span></div>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
