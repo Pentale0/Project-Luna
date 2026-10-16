@@ -1,0 +1,3 @@
+# large downloaded catalogs and intermediate files - safe to delete, rebuilt on demand
+cache/
+__pycache__/
