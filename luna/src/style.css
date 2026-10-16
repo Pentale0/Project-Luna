@@ -1,0 +1,21 @@
+/* Luna — Milestone 1 styles */
+
+/* The page itself is deep-space black; margin 0 so the canvas fills the
+   whole window with no white border around it. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  overflow: hidden; /* the canvas fills the screen — no scrolling needed */
+  height: 100%;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+canvas {
+  display: block; /* remove the tiny gap browsers put under <canvas> */
+}
