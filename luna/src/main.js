@@ -1,7 +1,13 @@
 import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { createUI } from './ui.js'
+import { createDeepSky } from './deepsky.js'
+import { fetchPhoto, starCanvas, exoplanetCanvas, solarBodyCanvas, hashSeed, planetPortraitFromUrl } from './textures.js'
 
 // ---------------------------------------------------------------------------
 // Luna — a "Google Maps for the stars".
@@ -33,6 +39,21 @@ const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 document.querySelector('#app').appendChild(renderer.domElement)
+const composer = new EffectComposer(renderer)
+composer.addPass(new RenderPass(scene, camera))
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.15, 1.0, 0.22)
+composer.addPass(bloom)
+
+// CSS2D label overlay (kept for future labels; nothing attaches a CSS2DObject
+// yet). The render loop below only paints it once a label exists, so the extra
+// pass costs nothing until then.
+const labelRenderer = new CSS2DRenderer()
+labelRenderer.setSize(window.innerWidth, window.innerHeight)
+labelRenderer.domElement.style.position = 'absolute'
+labelRenderer.domElement.style.top = '0'
+labelRenderer.domElement.style.left = '0'
+labelRenderer.domElement.style.pointerEvents = 'none'
+document.body.appendChild(labelRenderer.domElement)
 
 const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true
@@ -124,6 +145,7 @@ function updatePointScale() {
   const halfFov = THREE.MathUtils.degToRad(camera.fov * 0.5)
   const scale = bufferSize.y / (2 * Math.tan(halfFov))
   for (const m of pointMaterials) m.uniforms.uScale.value = scale
+  deepsky.updateScale(scale)
 }
 
 // --- Milky Way backdrop (stylised, decorative — not real data) --------------
@@ -241,6 +263,40 @@ const orbitR = (au) => 0.006 * Math.log(1 + au / 0.4)
 const bodyR = (km) =>
   Math.min(0.0025, Math.max(0.00028, 0.0006 * Math.pow(km / 6371, 0.4)))
 
+// Real, NASA-derived surface maps we ship (Solar System Scope, CC BY 4.0).
+const SOLAR_TEX = {
+  'sol-sun': 'sun.jpg',
+  'sol-mercury': 'mercury.jpg',
+  'sol-venus': 'venus.jpg',
+  'sol-earth': 'earth.jpg',
+  'sol-mars': 'mars.jpg',
+  'sol-jupiter': 'jupiter.jpg',
+  'sol-saturn': 'saturn.jpg',
+  'sol-uranus': 'uranus.jpg',
+  'sol-neptune': 'neptune.jpg',
+  'sol-moon': 'moon.jpg',
+}
+
+// Per-body look for the info-panel sphere render (atmosphere rim + lighting).
+const PORTRAIT_OPTS = {
+  'sol-sun': { limb: 0.4, ambient: 0.55 },
+  'sol-earth': { atmosphere: [110, 170, 255], halo: 0.5 },
+  'sol-venus': { atmosphere: [235, 214, 160], halo: 0.4 },
+  'sol-mars': { atmosphere: [210, 130, 100], halo: 0.22 },
+  'sol-jupiter': { atmosphere: [232, 202, 160], halo: 0.2, limb: 0.18 },
+  'sol-saturn': { atmosphere: [236, 220, 176], halo: 0.2, limb: 0.16 },
+  'sol-uranus': { atmosphere: [150, 236, 236], halo: 0.35 },
+  'sol-neptune': { atmosphere: [110, 150, 255], halo: 0.35 },
+}
+
+// A light from the Sun so the textured spheres show a real day/night terminator.
+const texLoader = new THREE.TextureLoader()
+const sunLight = new THREE.PointLight(0xfff2d8, 1.9)
+sunLight.decay = 0 // the Solar System here is exaggerated; keep the Sun evenly bright
+sunLight.position.set(0, 0, 0)
+scene.add(sunLight)
+scene.add(new THREE.AmbientLight(0x36425f, 0.65))
+
 function buildSolarSystem(list) {
   const GOLDEN = 2.399963229728653
   list.forEach((b, i) => {
@@ -262,10 +318,19 @@ function buildSolarSystem(list) {
 
     const isSun = b.type === 'star'
     const r = isSun ? 0.0011 : bodyR(b.radiusKm || 1000)
-    const mat = new THREE.MeshBasicMaterial({
-      color: BODY_COLOR[b.id] || 0xcccccc,
-    })
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 20), mat)
+    // Start from the procedural surface, then swap in the real map when loaded.
+    const base = new THREE.CanvasTexture(solarBodyCanvas(b.id, 512))
+    base.colorSpace = THREE.SRGBColorSpace
+    const mat = isSun
+      ? new THREE.MeshBasicMaterial({ map: base })
+      : new THREE.MeshStandardMaterial({
+          map: base,
+          roughness: 1,
+          metalness: 0,
+          emissive: new THREE.Color(BODY_COLOR[b.id] || 0x111111),
+          emissiveIntensity: 0.12,
+        })
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 32, 32), mat)
     mesh.position.copy(pos)
     mesh.userData = {
       type: 'solar',
@@ -278,6 +343,46 @@ function buildSolarSystem(list) {
     solarMeshes.push(mesh)
     solarById.set(b.id, mesh)
     solarPosition.set(b.id, pos)
+
+    const file = SOLAR_TEX[b.id]
+    if (file) {
+      texLoader.load(`/textures/${file}`, (t) => {
+        t.colorSpace = THREE.SRGBColorSpace
+        t.anisotropy = 4
+        mat.map = t
+        mat.needsUpdate = true
+      })
+    }
+
+    // Saturn's rings, mapped radially from the ring alpha strip.
+    if (b.id === 'sol-saturn') {
+      const inner = r * 1.35
+      const outer = r * 2.35
+      const geo = new THREE.RingGeometry(inner, outer, 96)
+      const p = geo.attributes.position
+      const uv = geo.attributes.uv
+      const v3 = new THREE.Vector3()
+      for (let i = 0; i < p.count; i++) {
+        v3.fromBufferAttribute(p, i)
+        uv.setXY(i, (v3.length() - inner) / (outer - inner), 0.5)
+      }
+      texLoader.load('/textures/saturn-ring.png', (t) => {
+        t.colorSpace = THREE.SRGBColorSpace
+        const ring = new THREE.Mesh(
+          geo,
+          new THREE.MeshBasicMaterial({
+            map: t,
+            transparent: true,
+            side: THREE.DoubleSide,
+            opacity: 0.92,
+            depthWrite: false,
+          }),
+        )
+        ring.rotation.x = Math.PI / 2
+        ring.position.copy(pos)
+        solarGroup.add(ring)
+      })
+    }
 
     // a soft glow so tiny worlds are still findable / clickable
     const glowMat = new THREE.SpriteMaterial({
@@ -307,10 +412,42 @@ function indexPlanets(list) {
   }
 }
 
+// --- Deep-sky objects (nebulae, clusters, galaxies, black holes, pulsars) ---
+// A manifest maps the famous objects to a real photograph we ship locally.
+let deepSkyImageManifest = {}
+const deepsky = createDeepSky(scene, {
+  imageUrl: (id) => deepSkyImageManifest[id]?.file || null,
+})
+let deepSkyObjects = []
+const deepSkyById = new Map()
+
+function buildDeepSky(list) {
+  deepSkyObjects = list
+  for (const o of list) deepSkyById.set(o.id, o)
+  deepsky.load(list)
+}
+
 // --- Info panel HTML --------------------------------------------------------
 const UNK = 'Unknown'
 const fmt = (v, unit = '', digits = 2) =>
   v === null || v === undefined ? UNK : `${Number(v).toFixed(digits)}${unit}`
+
+// Cached procedural portraits so re-opening a panel is instant.
+const portraitCache = new Map()
+function cachedPortrait(key, make) {
+  if (portraitCache.has(key)) return portraitCache.get(key)
+  const url = make().toDataURL('image/png')
+  portraitCache.set(key, url)
+  return url
+}
+const starPortrait = (s) =>
+  cachedPortrait(`star-${s.id}`, () =>
+    starCanvas(bvToColor(s.colorIndex), 220, hashSeed(s.id)),
+  )
+const planetPortrait = (p) =>
+  cachedPortrait(`exo-${p.id}`, () => exoplanetCanvas(p, 220))
+const solarPortrait = (b) =>
+  cachedPortrait(`sol-${b.id}`, () => solarBodyCanvas(b.id, 240))
 
 function renderStarInfo(s) {
   const pc = s.distLy ? s.distLy / 3.261563 : null
@@ -324,6 +461,7 @@ function renderStarInfo(s) {
   return `
     <h2>${s.name}</h2>
     <p class="subtitle">Star · ${s.constellation || UNK}</p>
+    ${imageBlock(starPortrait(s), s.name)}
     <dl class="facts">
       <dt>Distance</dt><dd>${fmt(s.distLy, ' ly', 1)}${pc ? ` (${pc.toFixed(1)} pc)` : ''}</dd>
       <dt>Type</dt><dd>${s.spectral || UNK}</dd>
@@ -341,6 +479,7 @@ function renderPlanetInfo(p) {
   return `
     <h2>${p.name}</h2>
     <p class="subtitle">Exoplanet · orbits ${host ? host.name : UNK}</p>
+    ${imageBlock(planetPortrait(p), p.name)}
     <dl class="facts">
       <dt>Mass</dt><dd>${fmt(p.massEarth, ' M⊕', 2)}</dd>
       <dt>Radius</dt><dd>${fmt(p.radiusEarth, ' R⊕', 2)}</dd>
@@ -364,6 +503,7 @@ function renderSolarInfo(b) {
   return `
     <h2>${b.name}</h2>
     <p class="subtitle">${b.type} · Solar System (not to scale)</p>
+    ${imageBlock(solarPortrait(b), b.name)}
     <dl class="facts">
       ${
         isMoon
@@ -381,26 +521,150 @@ function renderSolarInfo(b) {
   `
 }
 
+const DIST_METHOD_LABEL = {
+  literature: 'known distance',
+  parallax: 'from parallax',
+  redshift: 'from redshift',
+}
+
+function renderDeepSkyInfo(o) {
+  const portrait = deepsky.portrait(o)
+  const dist = o.distancePc
+    ? `${fmt(o.distanceLy, ' ly', o.distanceLy > 100000 ? 0 : 1)} (${o.distancePc > 1000 ? (o.distancePc / 1000).toFixed(1) + ' kpc' : o.distancePc.toFixed(0) + ' pc'})`
+    : 'Unknown — direction only'
+  return `
+    <h2>${o.name}</h2>
+    <p class="subtitle">${o.type} · ${o.constellation || 'deep sky'}</p>
+    ${imageBlock(portrait, o.name)}
+    <dl class="facts">
+      <dt>Type</dt><dd>${o.subtype || o.type}</dd>
+      <dt>Distance</dt><dd>${dist}${o.distanceMethod ? ` <span class="prov">${DIST_METHOD_LABEL[o.distanceMethod] || o.distanceMethod}</span>` : ''}</dd>
+      ${o.messier ? `<dt>Also</dt><dd>${o.messier}</dd>` : ''}
+      <dt>B magnitude</dt><dd>${fmt(o.magnitude, '', 2)}</dd>
+      <dt>Apparent size</dt><dd>${o.sizeArcmin ? `${o.sizeArcmin}′` : UNK}</dd>
+    </dl>
+    <p class="blurb">${o.info.blurb}</p>
+    ${o.info.funFact ? `<p class="funfact">${o.info.funFact}</p>` : ''}
+    ${
+      o.distancePc === null
+        ? '<p class="note">Placed on the sky shell by its measured direction; its true depth is not known.</p>'
+        : ''
+    }
+  `
+}
+
+// Swap the rendered portrait for a real photograph once it has loaded. A token
+// guards against a slow image landing on a panel the user has already changed.
+let portraitToken = 0
+
+function setPortrait(url, credit, token) {
+  const probe = new Image()
+  probe.referrerPolicy = 'no-referrer'
+  probe.onload = () => {
+    if (token !== portraitToken) return
+    const cur = document.getElementById('obj-photo')
+    if (!cur) return
+    cur.src = url
+    const c = document.getElementById('obj-credit')
+    if (c) c.textContent = credit
+  }
+  probe.src = url
+}
+
+// Upgrade the instantly-shown procedural portrait to a real one when available:
+//   * Solar System -> our shipped NASA-derived surface map, rendered as a sphere
+//   * deep-sky     -> a real photograph (local manifest, else Wikipedia)
+function upgradePortrait(kind, obj, token) {
+  if (kind === 'solar') {
+    const file = SOLAR_TEX[obj.id]
+    if (!file) return
+    planetPortraitFromUrl(`/textures/${file}`, {
+      size: 320,
+      background: '#05060d',
+      ...(PORTRAIT_OPTS[obj.id] || {}),
+    }).then((url) => {
+      if (url) setPortrait(url, 'Surface: NASA / Solar System Scope (CC BY 4.0)', token)
+    })
+    return
+  }
+  if (kind === 'deepsky') {
+    const entry = deepSkyImageManifest[obj.id]
+    if (entry) {
+      setPortrait(entry.file, 'Photo: Wikimedia Commons', token)
+      return
+    }
+    fetchPhoto(obj.name).then((photo) => {
+      if (photo?.url) setPortrait(photo.url, 'Photo: Wikipedia', token)
+    })
+  }
+}
+
+function imageBlock(dataUrl, alt, credit = 'Rendered portrait') {
+  return `<div class="portrait"><img id="obj-photo" alt="${alt}" src="${dataUrl}" /><span class="credit" id="obj-credit">${credit}</span></div>`
+}
+
 // --- Picking ----------------------------------------------------------------
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
 const pickTargets = [] // filled after data loads
+const _proj = new THREE.Vector3()
 
+// Screen-space pick for the deep-sky particle cloud (its points scale with the
+// zoom, so a world-space threshold would be unreliable).
+function pickDeepSkyScreen(clientX, clientY, threshPx) {
+  const pts = deepsky.points()
+  if (!pts || !deepsky.group.visible) return null
+  const pos = pts.geometry.getAttribute('position')
+  const w = window.innerWidth
+  const h = window.innerHeight
+  let best = -1
+  let bestPx = threshPx
+  for (let i = 0; i < pos.count; i++) {
+    _proj.set(pos.getX(i), pos.getY(i), pos.getZ(i)).project(camera)
+    if (_proj.z > 1) continue
+    const sx = (_proj.x * 0.5 + 0.5) * w
+    const sy = (-_proj.y * 0.5 + 0.5) * h
+    const d = Math.hypot(sx - clientX, sy - clientY)
+    if (d < bestPx) {
+      bestPx = d
+      best = i
+    }
+  }
+  return best >= 0 ? { obj: deepsky.pointAtIndex(best), px: bestPx } : null
+}
+
+// Returns the closest pick in screen space, or null.
 function pickAt(clientX, clientY) {
   pointer.x = (clientX / window.innerWidth) * 2 - 1
   pointer.y = -(clientY / window.innerHeight) * 2 + 1
-  // Let the point-pick tolerance grow when zoomed out.
   const dist = camera.position.distanceTo(controls.target)
   raycaster.params.Points.threshold = THREE.MathUtils.clamp(dist * 0.012, 0.15, 4.0)
   raycaster.setFromCamera(pointer, camera)
   const hits = raycaster.intersectObjects(pickTargets, false)
-  if (!hits.length) return null
-  const h = hits[0]
-  if (h.object.userData.type === 'stars') {
-    const s = stars[h.index]
-    return { type: 'star', id: s.id }
+
+  let best = null
+  if (hits.length) {
+    const h = hits[0]
+    if (h.object.userData.type === 'stars') {
+      const s = stars[h.index]
+      if (s) best = { type: 'star', id: s.id }
+    } else if (h.object.userData.type === 'deepsky') {
+      best = { type: 'deepsky', id: deepsky.pointAtIndex(h.index)?.id }
+    } else {
+      best = { type: 'solar', id: h.object.userData.id }
+    }
+    if (best) {
+      _proj.copy(h.point).project(camera)
+      best.px = Math.hypot(
+        (_proj.x * 0.5 + 0.5) * window.innerWidth - clientX,
+        (-_proj.y * 0.5 + 0.5) * window.innerHeight - clientY,
+      )
+    }
   }
-  return { type: 'solar', id: h.object.userData.id }
+
+  const ds = pickDeepSkyScreen(clientX, clientY, best ? best.px : 13)
+  if (ds) return { type: 'deepsky', id: ds.obj.id, px: ds.px }
+  return best
 }
 
 // --- Fly-to animation -------------------------------------------------------
@@ -425,23 +689,37 @@ const ui = createUI({
 })
 
 function selectById(type, id) {
+  portraitToken++
+  const token = portraitToken
   if (type === 'star') {
     const s = starById.get(id)
     if (!s) return
     ui.showInfo(renderStarInfo(s))
     flyTo(new THREE.Vector3(s.x, s.y, s.z), 4)
+    upgradePortrait('star', s, token)
   } else if (type === 'exoplanet') {
     const p = planetById.get(id)
     if (!p) return
     ui.showInfo(renderPlanetInfo(p))
     const host = starById.get(p.hostId)
     if (host) flyTo(new THREE.Vector3(host.x, host.y, host.z), 4)
+    upgradePortrait('exoplanet', p, token)
   } else if (type === 'solar') {
     const b = solarById.get(id)
     if (!b) return
     ui.showInfo(renderSolarInfo(b.userData.data))
     const r = b.userData.displayR
     flyTo(b.position.clone(), Math.max(0.004, r * 8))
+    upgradePortrait('solar', b.userData.data, token)
+  } else if (type === 'deepsky') {
+    const o = deepSkyById.get(id)
+    if (!o) return
+    ui.showInfo(renderDeepSkyInfo(o))
+    const spr = deepsky.sprite(id)
+    const target = spr ? spr.position.clone() : deepsky.worldPosition(o)
+    const r = spr ? spr.scale.x : 40
+    flyTo(target, Math.max(30, r * 3))
+    upgradePortrait('deepsky', o, token)
   }
 }
 
@@ -476,6 +754,15 @@ function buildSearchIndex() {
       id: s.id,
       rank: (s.absMag ?? 20) * 0.01, // brighter stars rank first
     })
+  for (const o of deepSkyObjects)
+    searchables.push({
+      label: o.name,
+      kind: 'Deep sky',
+      q: o.name.toLowerCase(),
+      type: 'deepsky',
+      id: o.id,
+      rank: (o.magnitude ?? 20) * 0.02 - (o.notable ? 1 : 0),
+    })
 }
 
 function searchIndex(query) {
@@ -503,6 +790,7 @@ let lastHover = 0
 function nameFor(type, id) {
   if (type === 'star') return starById.get(id)?.name
   if (type === 'solar') return solarById.get(id)?.userData.name
+  if (type === 'deepsky') return deepSkyById.get(id)?.name
   return null
 }
 
@@ -546,6 +834,8 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
+  composer.setSize(window.innerWidth, window.innerHeight)
+  labelRenderer.setSize(window.innerWidth, window.innerHeight)
   updatePointScale()
 })
 
@@ -569,7 +859,9 @@ renderer.setAnimationLoop(() => {
     u.value += (target - u.value) * 0.1
   }
   controls.update()
-  renderer.render(scene, camera)
+  composer.render()
+  // Only paint the label overlay when labels actually exist (none yet).
+  if (labelRenderer.domElement.childElementCount > 0) labelRenderer.render(scene, camera)
 })
 
 // --- Load data --------------------------------------------------------------
@@ -580,11 +872,14 @@ async function loadJSON(path) {
 }
 
 async function start() {
-  const [starList, planetList, solarList] = await Promise.all([
+  const [starList, planetList, solarList, deepSkyList, imageManifest] = await Promise.all([
     loadJSON('/data/stars.json'),
     loadJSON('/data/exoplanets.json'),
     loadJSON('/data/solar-system.json'),
+    loadJSON('/data/deep-sky.json'),
+    loadJSON('/data/deepsky-images.json').catch(() => ({})),
   ])
+  deepSkyImageManifest = imageManifest || {}
 
   stars = starList
   for (const s of stars) starById.set(s.id, s)
@@ -593,6 +888,7 @@ async function start() {
   buildMilkyWay()
   buildStars(stars)
   buildSolarSystem(solarList)
+  buildDeepSky(deepSkyList)
   indexPlanets(planets)
   buildSearchIndex()
 
@@ -603,11 +899,17 @@ async function start() {
     starCount: stars.length,
     planetCount: planets.length,
     solarCount: solarMeshes.length,
+    deepSkyCount: deepSkyObjects.length,
     searchCount: searchables.length,
+    deepSkyTypes: deepSkyObjects.reduce((a, o) => ((a[o.type] = (a[o.type] || 0) + 1), a), {}),
+    deepSkyImages: Object.keys(deepSkyImageManifest).length,
     pick: (x, y) => pickAt(x, y),
+    search: (q) => searchIndex(q),
+    select: (type, id) => selectById(type, id),
+    infoHtml: () => document.getElementById('info-body')?.innerHTML || '',
   }
   console.log(
-    `Luna: ${stars.length} stars, ${planets.length} planets, ${solarMeshes.length} solar bodies.`,
+    `Luna: ${stars.length} stars, ${planets.length} planets, ${solarMeshes.length} solar bodies, ${deepSkyObjects.length} deep-sky objects.`,
   )
   ui.setLoading(false)
 }

@@ -16,6 +16,7 @@ STAGES = [
     ("d04_subset", "subset + export stars.json"),
     ("d05_exoplanets", "exoplanets + host matching + hasPlanets"),
     ("d06_solar_system", "solar system"),
+    ("d09_deepsky", "deep-sky objects (OpenNGC + curated)"),
     ("d08_validate", "validate all outputs"),
 ]
 

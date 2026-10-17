@@ -188,6 +188,38 @@ canvas {
   background: rgba(90, 150, 255, 0.2);
 }
 
+/* --- Object portrait (hero image at the top of the panel) ----------------- */
+#info-body .portrait {
+  position: relative;
+  margin: 0 0 14px;
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(120, 170, 255, 0.25);
+  background:
+    radial-gradient(circle at 50% 38%, rgba(30, 46, 88, 0.9) 0%, rgba(5, 6, 13, 0.98) 72%);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6);
+}
+#info-body .portrait img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 0.35s ease;
+}
+#info-body .portrait .credit {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: rgba(206, 220, 246, 0.82);
+  background: rgba(4, 7, 16, 0.55);
+  padding: 2px 7px;
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+}
+
 /* --- Hint + legend (bottom) ---------------------------------------------- */
 #hint {
   position: absolute;
@@ -234,6 +266,18 @@ canvas {
 }
 .dot.solar {
   background: #ffcf6b;
+}
+.dot.galaxy {
+  background: #f2c98a;
+}
+.dot.nebula {
+  background: #ff8fd0;
+}
+.dot.cluster {
+  background: #9fc6ff;
+}
+.dot.blackhole {
+  background: #ffb060;
 }
 
 /* --- Tooltip (hover) ------------------------------------------------------ */

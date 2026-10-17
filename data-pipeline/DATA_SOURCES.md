@@ -9,6 +9,10 @@ exact point where it enters the pipeline.
 | **NASA Exoplanet Archive** — Planetary Systems Composite Parameters (`pscomppars`), via TAP | snapshot accessed 2026-10-16; 6,451 confirmed planets | `https://exoplanetarchive.ipac.caltech.edu/TAP/sync` | NASA data: not copyrighted, reusable with attribution | D5 (all exoplanets) |
 | **NASA Planetary Fact Sheet** (NSSDCA, metric) | page last updated 2025-03-18 | `https://nssdc.gsfc.nasa.gov/planetary/factsheet/` | Public NASA reference data | D6 (Sun, planets, Moon, Pluto) |
 | NASA/JPL + IAU published values | — | NASA/JPL Solar System Dynamics, IAU Minor Planet Center / Wikipedia cross-checked | Public reference data | D6 (dwarf planets, remaining moons) |
+| **OpenNGC** (deep-sky catalogue) | master, NGC sha256 `211ddbb3…`, addendum sha256 `c93f983d…` | `https://github.com/mattiaverga/OpenNGC` → `database_files/NGC.csv`, `addendum.csv` | CC BY-SA 4.0 | D9 (nebulae, clusters, galaxies, SNRs) |
+| Curated deep-sky distances + black holes / pulsars | hand-curated 2026-10-17 | literature values (SIMBAD/NASA/ESA releases) | Public reference data | D9 (`deepsky_curated.py`) |
+| **Solar System Scope surface maps** | accessed 2026-10-17, 15 files | `https://www.solarsystemscope.com/textures/` | CC BY 4.0 (based on NASA imagery) | D10 (`luna/public/textures/`) |
+| **Wikimedia Commons object photographs** | accessed 2026-10-17, 231 files | `https://commons.wikimedia.org`, discovered via the English Wikipedia REST API | per-file (mostly CC BY / CC BY-SA / public domain); credited per object | D10 (`luna/public/images/deepsky/`) |
 | **D1 mock catalog** | compiled 2026-10-16, hand-curated | — | n/a (temporary) | superseded by D3/D4 |
 
 ## Notes and deliberate omissions
@@ -36,3 +40,6 @@ exact point where it enters the pipeline.
 > Star data from the HYG database v4.4 (AstroNexus, CC BY-SA 4.0).
 > Exoplanet data from the NASA Exoplanet Archive.
 > Solar-system data from NASA/NSSDCA and NASA/JPL.
+> Deep-sky catalogue from OpenNGC (CC BY-SA 4.0).
+> Planet & Moon surface maps from Solar System Scope (CC BY 4.0, NASA-derived).
+> Object photographs from Wikimedia Commons (credited per object in the info panel).

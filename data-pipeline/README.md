@@ -25,7 +25,9 @@ and verifies its sha256. Later runs reuse the cache.
 | `d06_solar_system.py` | D6 solar system | `luna/public/data/solar-system.json` |
 | `d07_content.py` | D7 popup text (library, no output) | merged into the files above |
 | `d08_validate.py` | D8 validation | `cache/validation_report.txt` |
-| `run_all.py` | runs D2-D8 | the three shipped files |
+| `d09_deepsky.py` | D9 deep-sky catalogue (nebulae, clusters, galaxies, black holes) | `luna/public/data/deep-sky.json` |
+| `d10_assets.py` | D10 real image assets (surface maps + object photographs) | `luna/public/textures/`, `luna/public/images/deepsky/`, `luna/public/data/deepsky-images.json` |
+| `run_all.py` | runs D2-D10 | the shipped data files + image assets |
 
 `d07_content.py` and `luna_build.py` and `luna_common.py` are libraries the
 stage scripts import; they have no `main` of their own except `d07` (which
@@ -42,9 +44,24 @@ See `SCHEMA.md` for the exact shape of each file.
 - `stars.json` — 12,577 stars, ~4.4 MB
 - `exoplanets.json` — 1,283 planets, ~0.5 MB
 - `solar-system.json` — 28 bodies, ~10 KB
+- `deep-sky.json` — 12,171 objects (galaxies, clusters, nebulae, black holes…), ~6 MB
+- `deepsky-images.json` — manifest mapping the 231 notable objects to a real photo
 
 Loaded over the network they gzip to well under 1 MB each, so the browser
 parses them in a fraction of a second.
+
+## Shipped image assets
+
+`d10_assets.py` also downloads real imagery into the frontend's `public/`
+folder so the app looks photoreal and works offline:
+
+- `luna/public/textures/` — 15 NASA-derived equirectangular surface maps for the
+  Sun, planets and Moon (Solar System Scope, **CC BY 4.0**). Used both on the 3D
+  spheres and to render photoreal planet portraits in the info panel.
+- `luna/public/images/deepsky/` — 231 real photographs, one per "notable"
+  deep-sky object, looked up through the Wikipedia REST API (files come from
+  Wikimedia Commons; the per-object source and credit are recorded in
+  `deepsky-images.json`).
 
 ## Coordinate system (important for Person A)
 

@@ -23,7 +23,15 @@ METHODS = {"Radial velocity", "Transit", "Direct imaging", "Microlensing",
            "Pulsation timing variations", "Eclipse timing variations",
            "Orbital brightness modulations", "Disk kinematics"}
 BODY_TYPES = {"star", "planet", "dwarf planet", "moon"}
-FILE_BUDGET_MB = {"stars.json": 6.0, "exoplanets.json": 3.0, "solar-system.json": 1.0}
+DEEPSKY_KEYS = {"id", "name", "type", "subtype", "ra", "dec", "dir", "x", "y", "z",
+                "distancePc", "distanceLy", "distanceMethod", "constellation",
+                "magnitude", "sizeArcmin", "messier", "info", "notable"}
+DEEPSKY_TYPES = {"galaxy", "open cluster", "globular cluster", "planetary nebula",
+                 "nebula", "supernova remnant", "stellar association",
+                 "black hole", "pulsar"}
+DIST_METHODS = {None, "literature", "parallax", "redshift"}
+FILE_BUDGET_MB = {"stars.json": 6.0, "exoplanets.json": 3.0,
+                  "solar-system.json": 1.0, "deep-sky.json": 9.0}
 
 
 def words(text):
@@ -124,6 +132,45 @@ def validate_solar(errors, report):
     report.append(f"solar-system.json: {len(bodies)} bodies ({types})")
 
 
+def validate_deepsky(errors, report):
+    path, objs = load("deep-sky.json")
+    ids = set()
+    for o in objs:
+        if set(o) != DEEPSKY_KEYS:
+            errors.append(f"{o.get('id')}: deep-sky keys mismatch {set(o) ^ DEEPSKY_KEYS}")
+            continue
+        if o["id"] in ids:
+            errors.append(f"{o['id']}: duplicate deep-sky id")
+        ids.add(o["id"])
+        if o["type"] not in DEEPSKY_TYPES:
+            errors.append(f"{o['id']}: bad type {o['type']}")
+        d = o["dir"]
+        if not (isinstance(d, list) and len(d) == 3):
+            errors.append(f"{o['id']}: bad dir")
+        else:
+            n = math.sqrt(sum(c * c for c in d))
+            if abs(n - 1.0) > 0.01:
+                errors.append(f"{o['id']}: dir not unit ({n:.4f})")
+        if o["distanceMethod"] not in DIST_METHODS:
+            errors.append(f"{o['id']}: bad distanceMethod {o['distanceMethod']}")
+        if o["distancePc"] is None:
+            if any(o[k] is not None for k in ("x", "y", "z", "distanceLy")):
+                errors.append(f"{o['id']}: unknown distance but has position")
+        else:
+            if any(o[k] is None for k in ("x", "y", "z", "distanceLy")):
+                errors.append(f"{o['id']}: distance but missing position")
+            r = math.sqrt(o["x"] ** 2 + o["y"] ** 2 + o["z"] ** 2)
+            expected = o["distancePc"]
+            if abs(r - expected) > 0.02 * expected + 0.5:
+                errors.append(f"{o['id']}: position length {r:.2f} != distPc {expected:.2f}")
+        if not isinstance(o["notable"], bool):
+            errors.append(f"{o['id']}: notable not boolean")
+        check_text(o["info"], o["id"], errors)
+    report.append(f"deep-sky.json    : {len(objs)} objects "
+                  f"({sum(1 for o in objs if o['distancePc'])} with distance, "
+                  f"{sum(o['notable'] for o in objs)} notable)")
+
+
 def main():
     errors = []
     report = ["Luna data validation report", "=" * 30]
@@ -131,6 +178,7 @@ def main():
     star_ids = validate_stars(errors, report)
     validate_planets(errors, report, star_ids)
     validate_solar(errors, report)
+    validate_deepsky(errors, report)
 
     report.append("-" * 30)
     for name, budget in FILE_BUDGET_MB.items():

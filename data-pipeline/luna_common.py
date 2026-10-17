@@ -18,6 +18,25 @@ OUT_DIR = PROJECT_DIR / "luna" / "public" / "data"
 HYG_GZ = CACHE_DIR / "hyg_v44.csv.gz"
 HYG_CLEAN = CACHE_DIR / "hyg_clean.csv"
 EXO_RAW = CACHE_DIR / "exoplanets_raw.csv"
+OPENNGC_NGC = CACHE_DIR / "openngc_ngc.csv"
+OPENNGC_ADDENDUM = CACHE_DIR / "openngc_addendum.csv"
+
+# OpenNGC (github.com/mattiaverga/OpenNGC), CC-BY-SA-4.0. Raw files verified
+# by sha256 so a re-download is byte-for-byte identical.
+OPENNGC_NGC_URL = (
+    "https://raw.githubusercontent.com/mattiaverga/OpenNGC/master/database_files/NGC.csv"
+)
+OPENNGC_NGC_SHA256 = "211ddbb3e319bb04b52b0cb7ca3b13862079a022dbe577f2367bd3846b0fa85f"
+OPENNGC_ADDENDUM_URL = (
+    "https://raw.githubusercontent.com/mattiaverga/OpenNGC/master/database_files/addendum.csv"
+)
+OPENNGC_ADDENDUM_SHA256 = "c93f983dda6780b76b7b2e9271a856a892627710148a982ee98101a54c642fdd"
+OPENNGC_VERSION = "OpenNGC (2026 snapshot)"
+
+# Hubble constant for redshift-derived distances (km/s per Mpc) and c (km/s).
+HUBBLE_H0 = 70.0
+SPEED_OF_LIGHT_KM_S = 299792.458
+PARSEC_MEGAPARSEC = 1_000_000
 
 # HYG v4.4 (Codeberg, Git-LFS). sha256 is the LFS object id, so a re-download
 # can be verified byte-for-byte.
