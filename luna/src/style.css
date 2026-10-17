@@ -280,6 +280,310 @@ canvas {
   background: #ffb060;
 }
 
+/* --- top-left tool bar ---------------------------------------------------- */
+#toolbar {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tool {
+  pointer-events: auto;
+  font: inherit;
+  font-size: 12px;
+  color: #cfe0ff;
+  background: rgba(14, 20, 38, 0.72);
+  border: 1px solid rgba(120, 170, 255, 0.3);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+  backdrop-filter: blur(10px);
+}
+.tool:hover,
+.tool.active {
+  background: rgba(90, 150, 255, 0.25);
+  border-color: rgba(150, 200, 255, 0.7);
+}
+
+/* --- floating panels (layers / tours / saved) ----------------------------- */
+.panel {
+  position: absolute;
+  top: 18px;
+  left: 108px;
+  width: min(290px, calc(100vw - 130px));
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding: 14px 14px 16px;
+  background: rgba(12, 17, 32, 0.9);
+  border: 1px solid rgba(120, 170, 255, 0.28);
+  border-radius: 14px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.6);
+  animation: slidein 0.18s ease-out;
+}
+.panel-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #8fa6cf;
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.panel-close {
+  border: none;
+  background: none;
+  color: #9fb4dd;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.panel-close:hover {
+  color: #fff;
+}
+.panel .row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 4px;
+  font-size: 12.5px;
+  color: #dbe6fb;
+  border-radius: 8px;
+}
+.panel .row.clickable {
+  cursor: pointer;
+}
+.panel .row.clickable:hover {
+  background: rgba(90, 150, 255, 0.16);
+}
+.panel .row .grow {
+  flex: 1;
+}
+.panel .row .kind {
+  color: #7f9bcc;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.panel .row input[type='checkbox'] {
+  accent-color: #5a96ff;
+  width: 15px;
+  height: 15px;
+}
+.panel .row .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.panel .empty {
+  font-size: 12px;
+  color: #7f9bcc;
+  padding: 6px 4px;
+}
+.panel .row .del {
+  border: none;
+  background: none;
+  color: #9fb4dd;
+  cursor: pointer;
+  font-size: 14px;
+}
+.panel .row .del:hover {
+  color: #ff8f8f;
+}
+.panel-foot {
+  margin-top: 10px;
+  width: 100%;
+  font: inherit;
+  font-size: 11.5px;
+  color: #cfe0ff;
+  background: rgba(90, 150, 255, 0.14);
+  border: 1px solid rgba(120, 170, 255, 0.32);
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.panel-foot:hover {
+  background: rgba(90, 150, 255, 0.3);
+}
+
+/* --- info panel actions (save / share) ------------------------------------ */
+#info-actions {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+#info-actions button {
+  font: inherit;
+  font-size: 11.5px;
+  color: #cfe0ff;
+  background: rgba(90, 150, 255, 0.14);
+  border: 1px solid rgba(120, 170, 255, 0.32);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+#info-actions button:hover {
+  background: rgba(90, 150, 255, 0.3);
+}
+#info-actions button.on {
+  background: rgba(255, 200, 120, 0.22);
+  border-color: rgba(255, 200, 120, 0.6);
+  color: #ffe0b0;
+}
+#info-body .extragalactic {
+  display: inline-block;
+  margin: 0 0 10px;
+  padding: 3px 9px;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffd0a0;
+  border: 1px solid rgba(255, 190, 120, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 170, 90, 0.1);
+}
+
+/* --- tour caption --------------------------------------------------------- */
+#caption {
+  position: absolute;
+  bottom: 118px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(620px, calc(100vw - 40px));
+  text-align: center;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #eaf1ff;
+  background: rgba(10, 15, 30, 0.82);
+  border: 1px solid rgba(120, 170, 255, 0.3);
+  border-radius: 12px;
+  padding: 12px 18px;
+  backdrop-filter: blur(10px);
+  animation: slidein 0.25s ease-out;
+}
+#caption .cap-title {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #8fb0e8;
+  margin-bottom: 4px;
+}
+#caption .cap-ctrl {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+#caption button {
+  font: inherit;
+  font-size: 11.5px;
+  color: #cfe0ff;
+  background: rgba(90, 150, 255, 0.18);
+  border: 1px solid rgba(120, 170, 255, 0.4);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+#caption button:hover {
+  background: rgba(90, 150, 255, 0.35);
+}
+
+/* --- time machine --------------------------------------------------------- */
+#timebar {
+  position: absolute;
+  bottom: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: rgba(12, 17, 32, 0.82);
+  border: 1px solid rgba(120, 170, 255, 0.28);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+#timebar button {
+  font: inherit;
+  font-size: 13px;
+  color: #cfe0ff;
+  background: rgba(90, 150, 255, 0.16);
+  border: 1px solid rgba(120, 170, 255, 0.32);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  line-height: 1;
+}
+#timebar button:hover {
+  background: rgba(90, 150, 255, 0.32);
+}
+#time-slider {
+  width: min(320px, 40vw);
+  accent-color: #5a96ff;
+}
+#time-label {
+  font-size: 12px;
+  color: #cfe0ff;
+  min-width: 96px;
+  text-align: center;
+}
+
+/* --- scale bar (bottom right) --------------------------------------------- */
+#scalebar {
+  position: absolute;
+  right: 18px;
+  bottom: 214px;
+  text-align: center;
+  font-size: 11px;
+  color: #cfe0ff;
+  user-select: none;
+}
+#scalebar-line {
+  height: 0;
+  border-top: 2px solid rgba(207, 224, 255, 0.85);
+  border-left: 2px solid rgba(207, 224, 255, 0.85);
+  border-right: 2px solid rgba(207, 224, 255, 0.85);
+  border-radius: 2px 2px 0 0;
+  margin: 0 auto 3px;
+  transition: width 0.12s linear;
+}
+
+/* --- mini map (bottom right) ---------------------------------------------- */
+#minimap {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: 184px;
+  height: 184px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid rgba(120, 170, 255, 0.35);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  background: #04060f;
+}
+#minimap canvas {
+  display: block;
+}
+#minimap .mm-label {
+  position: absolute;
+  bottom: 4px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: rgba(200, 216, 246, 0.8);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
 /* --- Tooltip (hover) ------------------------------------------------------ */
 #tooltip {
   position: fixed;

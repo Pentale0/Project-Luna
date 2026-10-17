@@ -66,12 +66,18 @@ def build_star(row, has_planets=False):
 
     blurb, fun_fact = content.star_content(name, spectral, round(dist_ly, 2),
                                            round(abs_mag, 2) if abs_mag is not None else None, con)
+    vx = _clean_float(row.get("vx")) or 0.0
+    vy = _clean_float(row.get("vy")) or 0.0
+    vz = _clean_float(row.get("vz")) or 0.0
     return {
         "id": f"hyg-{int(row['id'])}",
         "name": name,
         "x": round(float(row["x"]), 3),
         "y": round(float(row["y"]), 3),
         "z": round(float(row["z"]), 3),
+        "vx": round(vx, 7),
+        "vy": round(vy, 7),
+        "vz": round(vz, 7),
         "absMag": round(abs_mag, 2) if abs_mag is not None else None,
         "colorIndex": round(color, 2) if color is not None else None,
         "spectral": spectral,

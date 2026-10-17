@@ -97,6 +97,18 @@ def absolute_magnitude(apparent_mag, dist_pc):
     return apparent_mag - 5.0 * math.log10(dist_pc / 10.0)
 
 
+def _finite(value):
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return f
+
+
 def radec_to_galactic_xyz(ra_deg, dec_deg, dist_pc):
     """RA (deg), Dec (deg), distance (pc) -> galactic Cartesian parsecs."""
     ra = math.radians(ra_deg)
@@ -108,6 +120,47 @@ def radec_to_galactic_xyz(ra_deg, dec_deg, dist_pc):
     gx = a * x_eq + b * y_eq + c * z_eq
     gy = d * x_eq + e * y_eq + f * z_eq
     gz = g * x_eq + h * y_eq + i * z_eq
+    return gx, gy, gz
+
+
+def radec_pm_to_galactic_velocity(ra_deg, dec_deg, dist_pc, pmra_mas, pmdec_mas):
+    """Proper motion -> galactic Cartesian velocity, in parsecs per year.
+
+    HYG stores ``pmra`` as mu_alpha* = mu_alpha * cos(dec) and ``pmdec`` as
+    mu_delta, both in milliarcseconds per year. The star's tangential velocity
+    in the plane of the sky is
+
+        v = d * (mu_east * east_hat + mu_north * north_hat)
+
+    where east_hat / north_hat are the local unit vectors. Rotating that vector
+    with the same IAU matrix used for positions gives the galactic velocity.
+    HYG carries no radial velocity, so the (unseen) line-of-sight component is
+    left at zero.
+    """
+    dist_pc = _finite(dist_pc)
+    pmra_mas = _finite(pmra_mas)
+    pmdec_mas = _finite(pmdec_mas)
+    if not dist_pc or dist_pc <= 0 or pmra_mas is None or pmdec_mas is None:
+        return 0.0, 0.0, 0.0
+
+    ra = math.radians(ra_deg)
+    dec = math.radians(dec_deg)
+    mas_to_rad = math.pi / (180.0 * 3600.0 * 1000.0)
+    v_east = dist_pc * pmra_mas * mas_to_rad
+    v_north = dist_pc * pmdec_mas * mas_to_rad
+
+    east = (-math.sin(ra), math.cos(ra), 0.0)
+    north = (-math.sin(dec) * math.cos(ra),
+             -math.sin(dec) * math.sin(ra),
+             math.cos(dec))
+    vx_eq = v_east * east[0] + v_north * north[0]
+    vy_eq = v_east * east[1] + v_north * north[1]
+    vz_eq = v_east * east[2] + v_north * north[2]
+
+    (a, b, c), (d, e, f), (g, h, i) = GAL_MATRIX
+    gx = a * vx_eq + b * vy_eq + c * vz_eq
+    gy = d * vx_eq + e * vy_eq + f * vz_eq
+    gz = g * vx_eq + h * vy_eq + i * vz_eq
     return gx, gy, gz
 
 

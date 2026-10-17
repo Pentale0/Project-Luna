@@ -23,12 +23,64 @@
         <div id="search-results" class="hidden"></div>
       </div>
 
+      <!-- top-left tool bar -->
+      <div id="toolbar">
+        <button id="btn-layers" class="tool" title="Layers">Layers</button>
+        <button id="btn-tours" class="tool" title="Guided tours">Tours</button>
+        <button id="btn-bookmarks" class="tool" title="Saved places">Saved</button>
+        <button id="btn-time" class="tool" title="Time machine">Time</button>
+      </div>
+
+      <div id="layers" class="panel hidden">
+        <div class="panel-title">
+          Layers
+          <button class="panel-close" data-close="layers" aria-label="Close">×</button>
+        </div>
+        <div id="layers-list"></div>
+        <button id="layers-reset" class="panel-foot">Show everything</button>
+      </div>
+
+      <div id="tours" class="panel hidden">
+        <div class="panel-title">
+          Guided tours
+          <button class="panel-close" data-close="tours" aria-label="Close">×</button>
+        </div>
+        <div id="tours-list"></div>
+      </div>
+
+      <div id="bookmarks" class="panel hidden">
+        <div class="panel-title">
+          Saved places
+          <button class="panel-close" data-close="bookmarks" aria-label="Close">×</button>
+        </div>
+        <div id="bookmarks-list"></div>
+      </div>
+
       <div id="info" class="hidden">
         <button id="info-close" aria-label="Close">×</button>
+        <div id="info-actions"></div>
         <div id="info-body"></div>
       </div>
 
-      <div id="hint">Drag to orbit · Scroll to zoom · Click any object</div>
+      <div id="caption" class="hidden"></div>
+      <div id="hint">Drag to orbit · Scroll to zoom · Click any object · Tools: Layers · Tours · Saved · Time</div>
+
+      <div id="timebar" class="hidden">
+        <button id="time-play" title="Play / pause">▶</button>
+        <input id="time-slider" type="range" min="-100000" max="100000" value="0" step="500" />
+        <span id="time-label">now</span>
+        <button id="time-reset" title="Reset to now">⌂</button>
+      </div>
+
+      <div id="scalebar">
+        <div id="scalebar-line"></div>
+        <span id="scalebar-label"></span>
+      </div>
+
+      <div id="minimap">
+        <canvas id="minimap-canvas" width="184" height="184"></canvas>
+      </div>
+
       <div id="legend">
         <span><i class="dot star"></i> star</span>
         <span><i class="dot planet"></i> exoplanet host</span>

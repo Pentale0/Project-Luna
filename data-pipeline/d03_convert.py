@@ -33,12 +33,20 @@ def convert():
     df["dist_ly"] = df["dist"].apply(luna.light_years_from_parsecs)
     df["ra_deg"] = ra_deg
 
+    # Tangential velocity from proper motion (parsecs / year, galactic axes).
+    vxyz = [luna.radec_pm_to_galactic_velocity(ra, dec, dist, pmra, pmdec)
+            for ra, dec, dist, pmra, pmdec in
+            zip(ra_deg, df["dec"], df["dist"], df["pmra"], df["pmdec"])]
+    df["vx"] = [v[0] for v in vxyz]
+    df["vy"] = [v[1] for v in vxyz]
+    df["vz"] = [v[2] for v in vxyz]
+
     for col in ("proper", "spect", "bf", "bayer", "gl", "con"):
         df[col] = df[col].where(df[col].notna(), None)
 
     keep = ["id", "proper", "bf", "bayer", "flam", "con", "gl", "hip", "hd",
             "ra_deg", "dec", "dist_pc", "dist_ly", "mag", "absmag", "ci",
-            "spect", "x", "y", "z"]
+            "spect", "x", "y", "z", "vx", "vy", "vz"]
     out = df[keep]
     luna.CACHE_DIR.mkdir(parents=True, exist_ok=True)
     out.to_csv(luna.HYG_CLEAN, index=False)

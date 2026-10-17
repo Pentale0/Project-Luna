@@ -11,8 +11,8 @@ import math
 
 import luna_common as luna
 
-STAR_KEYS = {"id", "name", "x", "y", "z", "absMag", "colorIndex", "spectral",
-             "distLy", "constellation", "hasPlanets", "info"}
+STAR_KEYS = {"id", "name", "x", "y", "z", "vx", "vy", "vz", "absMag",
+             "colorIndex", "spectral", "distLy", "constellation", "hasPlanets", "info"}
 PLANET_KEYS = {"id", "name", "hostId", "massEarth", "radiusEarth", "periodDays",
                "discoveryYear", "method", "info"}
 BODY_KEYS = {"id", "name", "type", "parentId", "semiMajorAxisAu",
@@ -77,6 +77,10 @@ def validate_stars(errors, report):
             errors.append(f"{s['id']}: colorIndex {s['colorIndex']} out of range")
         if not isinstance(s["hasPlanets"], bool):
             errors.append(f"{s['id']}: hasPlanets not boolean")
+        if not all(isinstance(s[k], (int, float)) for k in ("vx", "vy", "vz")):
+            errors.append(f"{s['id']}: bad proper-motion velocity")
+        elif math.sqrt(s["vx"] ** 2 + s["vy"] ** 2 + s["vz"] ** 2) > 0.05:
+            errors.append(f"{s['id']}: implausible velocity")
         check_text(s["info"], s["id"], errors)
     report.append(f"stars.json       : {len(stars)} stars "
                   f"({sum(s['hasPlanets'] for s in stars)} with planets)")

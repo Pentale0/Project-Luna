@@ -97,6 +97,28 @@ A rotation preserves lengths, so `sqrt(x² + y² + z²)` still equals `d`. Both
 D3 and D8 check this. If the axes were wrong, stars would land in the wrong
 place instantly.
 
+### Proper motion → velocity (D3)
+
+The frontend time machine needs stars to actually *move*, so D3 also derives a
+velocity for every star from HYG's proper motion (`pmra`, `pmdec`, both in
+milliarcseconds per year). HYG's `pmra` is the usual catalogued value
+**μα·cosδ**, so the sky-plane speed is computed directly:
+
+```
+v_east  = d_pc · pmra_mas  · mas_to_rad
+v_north = d_pc · pmdec_mas · mas_to_rad
+v⃗ = v_east · east̂ + v_north · nortĥ      (rotated with the same IAU matrix)
+```
+
+where `east̂ = (−sinα, cosα, 0)` and
+`nortĥ = (−sinδ·cosα, −sinδ·sinα, cosδ)`. HYG carries **no radial velocity**,
+so the line-of-sight component is `0` — this is tangential motion only. The
+result ships as `vx`, `vy`, `vz` in **parsecs per year** and is validated by D8
+(nothing may move faster than 0.05 pc/yr, i.e. ~1500 km/s).
+
+Sanity checks against the literature: Barnard's Star ≈ 87 km/s, Kapteyn's Star
+≈ 161 km/s (a halo star), Sirius ≈ 17 km/s.
+
 ### Other formulas
 
 Light-years ↔ parsecs: `d_ly = d_pc · 3.261563`

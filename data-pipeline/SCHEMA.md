@@ -19,6 +19,7 @@ origin, `+z` = north galactic pole ("up").
   "id": "hyg-32349",
   "name": "Sirius",
   "x": -1.77, "y": -1.91, "z": -0.41,
+  "vx": 0.0000031, "vy": -0.0000052, "vz": 0.0000004,
   "absMag": 1.43,
   "colorIndex": 0.01,
   "spectral": "A1V",
@@ -34,6 +35,7 @@ origin, `+z` = north galactic pole ("up").
 | `id` | string | stable: `hyg-<HYG id>` |
 | `name` | string | proper (IAU) name, else Bayer/Flamsteed, else Gliese/HD/HIP |
 | `x`,`y`,`z` | number | galactic parsecs, 3 decimals |
+| `vx`,`vy`,`vz` | number | galactic velocity in **parsecs per year** (7 decimals), derived from HYG proper motion `pmra`/`pmdec`; `0,0,0` when unknown. No radial-velocity term (HYG carries none), so this is the tangential motion only. |
 | `absMag` | number \| null | absolute V magnitude |
 | `colorIndex` | number \| null | B−V colour index |
 | `spectral` | string \| null | e.g. `"G2V"` |

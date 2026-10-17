@@ -7,6 +7,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { createUI } from './ui.js'
 import { createDeepSky } from './deepsky.js'
+import { createMinimap } from './minimap.js'
 import { fetchPhoto, starCanvas, exoplanetCanvas, solarBodyCanvas, hashSeed, planetPortraitFromUrl } from './textures.js'
 
 // ---------------------------------------------------------------------------
@@ -54,6 +55,11 @@ labelRenderer.domElement.style.top = '0'
 labelRenderer.domElement.style.left = '0'
 labelRenderer.domElement.style.pointerEvents = 'none'
 document.body.appendChild(labelRenderer.domElement)
+
+// Mini-map (top-down galactic view) + scale bar (bottom-right HUD).
+const minimap = createMinimap(document.getElementById('minimap-canvas'))
+const scalebarLine = document.getElementById('scalebar-line')
+const scalebarLabel = document.getElementById('scalebar-label')
 
 const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true
@@ -195,16 +201,26 @@ let stars = []
 let starPoints = null
 let hostPoints = null
 const starById = new Map()
+// Proper motion: the catalogue position and the galactic velocity (parsecs per
+// year). Kept so the time machine can slide the real stars without re-reading
+// the file. See data-pipeline (HYG pmra/pmdec -> vx, vy, vz).
+let starBase = null
+let starVel = null
+let hostIndex = [] // indices into `stars` that host planets (for the halo)
 
 function buildStars(list) {
   const positions = new Float32Array(list.length * 3)
   const colors = new Float32Array(list.length * 3)
   const sizes = new Float32Array(list.length)
+  const vel = new Float32Array(list.length * 3)
 
   list.forEach((s, i) => {
     positions[i * 3] = s.x
     positions[i * 3 + 1] = s.y
     positions[i * 3 + 2] = s.z
+    vel[i * 3] = s.vx || 0
+    vel[i * 3 + 1] = s.vy || 0
+    vel[i * 3 + 2] = s.vz || 0
     const c = bvToColor(s.colorIndex)
     colors[i * 3] = c[0]
     colors[i * 3 + 1] = c[1]
@@ -217,23 +233,62 @@ function buildStars(list) {
   starPoints.frustumCulled = false
   scene.add(starPoints)
 
+  starBase = positions.slice()
+  starVel = vel
+
   // teal halo on the 890 stars known to host planets
-  const hosts = list.filter((s) => s.hasPlanets)
-  const hp = new Float32Array(hosts.length * 3)
-  const hc = new Float32Array(hosts.length * 3)
-  const hs = new Float32Array(hosts.length)
-  hosts.forEach((s, i) => {
-    hp[i * 3] = s.x
-    hp[i * 3 + 1] = s.y
-    hp[i * 3 + 2] = s.z
-    hc[i * 3] = 0.15
-    hc[i * 3 + 1] = 1.0
-    hc[i * 3 + 2] = 0.85
-    hs[i] = absMagToSize(s.absMag) * 6
+  hostIndex = []
+  list.forEach((s, i) => {
+    if (s.hasPlanets) hostIndex.push(i)
+  })
+  const hp = new Float32Array(hostIndex.length * 3)
+  const hc = new Float32Array(hostIndex.length * 3)
+  const hs = new Float32Array(hostIndex.length)
+  hostIndex.forEach((src, k) => {
+    const s = list[src]
+    hp[k * 3] = s.x
+    hp[k * 3 + 1] = s.y
+    hp[k * 3 + 2] = s.z
+    hc[k * 3] = 0.15
+    hc[k * 3 + 1] = 1.0
+    hc[k * 3 + 2] = 0.85
+    hs[k] = absMagToSize(s.absMag) * 6
   })
   hostPoints = makePoints(hp, hc, hs, makeStarMaterial({ maxSize: 30, opacity: 0.5 }))
   hostPoints.frustumCulled = false
   scene.add(hostPoints)
+}
+
+// Move the real stars to their positions `years` from now (proper motion). The
+// point-cloud attribute, the picking positions and the planet-host halo are all
+// kept in sync, so clicking and fly-to still land on the star.
+function applyStarTime(years) {
+  if (!starPoints || !starBase) return
+  const attr = starPoints.geometry.getAttribute('position')
+  const arr = attr.array
+  const hAttr = hostPoints ? hostPoints.geometry.getAttribute('position') : null
+  const hArr = hAttr ? hAttr.array : null
+  for (let i = 0; i < stars.length; i++) {
+    const x = starBase[i * 3] + starVel[i * 3] * years
+    const y = starBase[i * 3 + 1] + starVel[i * 3 + 1] * years
+    const z = starBase[i * 3 + 2] + starVel[i * 3 + 2] * years
+    arr[i * 3] = x
+    arr[i * 3 + 1] = y
+    arr[i * 3 + 2] = z
+    stars[i].x = x
+    stars[i].y = y
+    stars[i].z = z
+  }
+  attr.needsUpdate = true
+  if (hArr) {
+    for (let k = 0; k < hostIndex.length; k++) {
+      const i = hostIndex[k]
+      hArr[k * 3] = arr[i * 3]
+      hArr[k * 3 + 1] = arr[i * 3 + 1]
+      hArr[k * 3 + 2] = arr[i * 3 + 2]
+    }
+    hAttr.needsUpdate = true
+  }
 }
 
 // --- Solar System (exaggerated; NOT to scale) -------------------------------
@@ -242,6 +297,8 @@ scene.add(solarGroup)
 const solarById = new Map()
 const solarPosition = new Map()
 const solarMeshes = []
+const solarBodies = [] // one record per body, used by the time machine
+let backdropOn = true
 
 // Body colours by id (cosmetic).
 const BODY_COLOR = {
@@ -297,26 +354,22 @@ sunLight.position.set(0, 0, 0)
 scene.add(sunLight)
 scene.add(new THREE.AmbientLight(0x36425f, 0.65))
 
+// A faint ring marking a planet's orbit, in the (exaggerated) ecliptic plane.
+function orbitLineGeometry(radius) {
+  const seg = 128
+  const pts = []
+  for (let i = 0; i <= seg; i++) {
+    const a = (i / seg) * Math.PI * 2
+    pts.push(new THREE.Vector3(Math.cos(a) * radius, Math.sin(a) * radius, 0))
+  }
+  return new THREE.BufferGeometry().setFromPoints(pts)
+}
+
 function buildSolarSystem(list) {
   const GOLDEN = 2.399963229728653
   list.forEach((b, i) => {
-    let pos
-    if (b.type === 'star') {
-      pos = new THREE.Vector3(0, 0, 0)
-    } else if (b.semiMajorAxisAu !== null && b.semiMajorAxisAu !== undefined) {
-      const r = orbitR(b.semiMajorAxisAu)
-      const a = i * GOLDEN
-      pos = new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0)
-    } else {
-      // a moon: sit just outside its parent, on its own little ring
-      const parent = solarPosition.get(b.parentId) || new THREE.Vector3()
-      const pr = solarById.get(b.parentId)?.userData?.displayR || 0.0006
-      const mr = pr + 0.0009 + (i % 3) * 0.0007
-      const a = i * GOLDEN
-      pos = parent.clone().add(new THREE.Vector3(Math.cos(a) * mr, Math.sin(a) * mr, 0))
-    }
-
     const isSun = b.type === 'star'
+    const isMoon = b.type === 'moon'
     const r = isSun ? 0.0011 : bodyR(b.radiusKm || 1000)
     // Start from the procedural surface, then swap in the real map when loaded.
     const base = new THREE.CanvasTexture(solarBodyCanvas(b.id, 512))
@@ -331,7 +384,6 @@ function buildSolarSystem(list) {
           emissiveIntensity: 0.12,
         })
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 32, 32), mat)
-    mesh.position.copy(pos)
     mesh.userData = {
       type: 'solar',
       id: b.id,
@@ -342,7 +394,39 @@ function buildSolarSystem(list) {
     solarGroup.add(mesh)
     solarMeshes.push(mesh)
     solarById.set(b.id, mesh)
-    solarPosition.set(b.id, pos)
+
+    const rec = {
+      id: b.id,
+      data: b,
+      mesh,
+      glow: null,
+      ring: null, // Saturn's rings (follows the body)
+      isSun,
+      isMoon,
+      parentId: b.parentId || null,
+      phase: i * GOLDEN,
+      orbitA: b.semiMajorAxisAu !== null && b.semiMajorAxisAu !== undefined
+        ? orbitR(b.semiMajorAxisAu)
+        : null,
+      periodDays: b.orbitalPeriodDays || null,
+      moonOffset: 0.0009 + (i % 3) * 0.0007,
+    }
+    solarBodies.push(rec)
+
+    // Orbit ring for planets and dwarf planets.
+    if (!isSun && !isMoon && rec.orbitA) {
+      const line = new THREE.Line(
+        orbitLineGeometry(rec.orbitA),
+        new THREE.LineBasicMaterial({
+          color: 0x36527d,
+          transparent: true,
+          opacity: 0.32,
+          depthWrite: false,
+        }),
+      )
+      line.renderOrder = -0.4
+      solarGroup.add(line)
+    }
 
     const file = SOLAR_TEX[b.id]
     if (file) {
@@ -379,8 +463,9 @@ function buildSolarSystem(list) {
           }),
         )
         ring.rotation.x = Math.PI / 2
-        ring.position.copy(pos)
+        ring.position.copy(rec.mesh.position)
         solarGroup.add(ring)
+        rec.ring = ring
       })
     }
 
@@ -394,9 +479,40 @@ function buildSolarSystem(list) {
     })
     const glow = new THREE.Sprite(glowMat)
     glow.scale.setScalar(r * (isSun ? 14 : 9))
-    glow.position.copy(pos)
     solarGroup.add(glow)
+    rec.glow = glow
   })
+  layoutSolar(0)
+}
+
+// Lay the Solar System out for a given time offset. Bodies circle on their real
+// (exaggerated) orbits; the phase advances with the body's real period, so the
+// relative motion is physically right even though the sizes are not.
+function layoutSolar(years) {
+  const days = years * 365.25
+  for (const rec of solarBodies) {
+    let pos
+    if (rec.isSun) {
+      pos = new THREE.Vector3(0, 0, 0)
+    } else if (rec.orbitA !== null) {
+      const th = rec.periodDays
+        ? rec.phase + (2 * Math.PI * days) / rec.periodDays
+        : rec.phase
+      pos = new THREE.Vector3(Math.cos(th) * rec.orbitA, Math.sin(th) * rec.orbitA, 0)
+    } else {
+      const parent = solarPosition.get(rec.parentId) || new THREE.Vector3()
+      const pr = solarById.get(rec.parentId)?.userData?.displayR || 0.0006
+      const mr = pr + rec.moonOffset
+      const th = rec.periodDays
+        ? rec.phase + (2 * Math.PI * days) / rec.periodDays
+        : rec.phase
+      pos = parent.clone().add(new THREE.Vector3(Math.cos(th) * mr, Math.sin(th) * mr, 0))
+    }
+    rec.mesh.position.copy(pos)
+    if (rec.glow) rec.glow.position.copy(pos)
+    if (rec.ring) rec.ring.position.copy(pos)
+    solarPosition.set(rec.id, pos)
+  }
 }
 
 // --- Exoplanets -------------------------------------------------------------
@@ -527,14 +643,24 @@ const DIST_METHOD_LABEL = {
   redshift: 'from redshift',
 }
 
+// Everything the catalogue knows about our own galaxy is within ~30 kpc; the
+// only objects type-tagged "galaxy" are, by definition, other galaxies. So an
+// object is "beyond the Milky Way" if it is a galaxy or sits further out than
+// the galactic disc.
+const MILKY_WAY_RADIUS_PC = 30000
+const isExtragalactic = (o) =>
+  o.type === 'galaxy' || (o.distancePc != null && o.distancePc > MILKY_WAY_RADIUS_PC)
+
 function renderDeepSkyInfo(o) {
   const portrait = deepsky.portrait(o)
+  const outside = isExtragalactic(o)
   const dist = o.distancePc
     ? `${fmt(o.distanceLy, ' ly', o.distanceLy > 100000 ? 0 : 1)} (${o.distancePc > 1000 ? (o.distancePc / 1000).toFixed(1) + ' kpc' : o.distancePc.toFixed(0) + ' pc'})`
     : 'Unknown — direction only'
   return `
     <h2>${o.name}</h2>
     <p class="subtitle">${o.type} · ${o.constellation || 'deep sky'}</p>
+    ${outside ? '<div class="extragalactic">◎ Beyond the Milky Way</div>' : ''}
     ${imageBlock(portrait, o.name)}
     <dl class="facts">
       <dt>Type</dt><dd>${o.subtype || o.type}</dd>
@@ -620,6 +746,7 @@ function pickDeepSkyScreen(clientX, clientY, threshPx) {
   let best = -1
   let bestPx = threshPx
   for (let i = 0; i < pos.count; i++) {
+    if (!deepsky.isVisibleAt(i)) continue
     _proj.set(pos.getX(i), pos.getY(i), pos.getZ(i)).project(camera)
     if (_proj.z > 1) continue
     const sx = (_proj.x * 0.5 + 0.5) * w
@@ -649,7 +776,7 @@ function pickAt(clientX, clientY) {
       const s = stars[h.index]
       if (s) best = { type: 'star', id: s.id }
     } else if (h.object.userData.type === 'deepsky') {
-      best = { type: 'deepsky', id: deepsky.pointAtIndex(h.index)?.id }
+      if (deepsky.isVisibleAt(h.index)) best = { type: 'deepsky', id: deepsky.pointAtIndex(h.index)?.id }
     } else {
       best = { type: 'solar', id: h.object.userData.id }
     }
@@ -682,45 +809,367 @@ function flyTo(worldPos, distance) {
 }
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
 
+// --- Layers -----------------------------------------------------------------
+// Each layer can be switched on/off; the state also lives in the URL hash so a
+// view can be shared.
+const LAYERS = [
+  { id: 'stars', label: 'Stars', hint: '12,577', on: true,
+    apply: (on) => { if (starPoints) starPoints.visible = on } },
+  { id: 'hosts', label: 'Exoplanet hosts', hint: '890', on: true,
+    apply: (on) => { if (hostPoints) hostPoints.visible = on } },
+  { id: 'solar', label: 'Solar System', on: true,
+    apply: (on) => { solarGroup.visible = on } },
+  { id: 'deepsky', label: 'Deep sky', hint: '12,171', on: true,
+    apply: (on) => deepsky.setPointsVisible(on) },
+  { id: 'famous', label: 'Famous-object photos', hint: '238', on: true,
+    apply: (on) => deepsky.setSpritesVisible(on) },
+  { id: 'outside', label: 'Outside the Milky Way', hint: 'galaxies', on: true,
+    apply: (on) => deepsky.setFilter(on ? null : (o) => !isExtragalactic(o)) },
+  { id: 'backdrop', label: 'Milky Way glow', on: true,
+    apply: (on) => { backdropOn = on } },
+]
+const layerState = Object.fromEntries(LAYERS.map((l) => [l.id, l.on]))
+
+function setLayer(id, on, { silent = false } = {}) {
+  const layer = LAYERS.find((l) => l.id === id)
+  if (!layer) return
+  layerState[id] = on
+  if (layer.apply) layer.apply(on)
+  if (!silent) syncHash()
+}
+function enableAllLayers() {
+  for (const l of LAYERS) {
+    layerState[l.id] = true
+    if (l.apply) l.apply(true)
+  }
+}
+function renderLayers() {
+  ui.setLayers(
+    LAYERS.map((l) => ({ id: l.id, label: l.label, hint: l.hint, on: layerState[l.id] })),
+  )
+}
+
+// --- Guided tours -----------------------------------------------------------
+const TOURS = [
+  {
+    id: 'solar',
+    title: 'Tour the Solar System',
+    description: 'From the Sun out to Pluto, with real orbits.',
+    stops: [
+      { type: 'solar', id: 'sol-sun', text: 'The Sun — 99.86% of the mass of the Solar System, a ball of plasma 109 Earths across.' },
+      { type: 'solar', id: 'sol-earth', text: 'Earth — our pale blue dot, the only world known to host life.' },
+      { type: 'solar', id: 'sol-mars', text: 'Mars — the rusty desert world, home to the tallest volcano in the Solar System.' },
+      { type: 'solar', id: 'sol-jupiter', text: 'Jupiter — a gas giant so massive it could swallow 1,300 Earths.' },
+      { type: 'solar', id: 'sol-saturn', text: 'Saturn — the ringed jewel; its rings are mostly water ice.' },
+      { type: 'solar', id: 'sol-neptune', text: 'Neptune — the windiest planet, with supersonic storms.' },
+      { type: 'solar', id: 'sol-pluto', text: 'Pluto — a dwarf planet with a heart-shaped glacier of nitrogen ice.' },
+    ],
+  },
+  {
+    id: 'neighbourhood',
+    title: 'The Solar Neighbourhood',
+    description: 'The nearest stars to the Sun.',
+    stops: [
+      { q: 'Proxima Centauri', text: 'Proxima Centauri — the closest star to the Sun, 4.24 light-years away: a tiny red dwarf.' },
+      { q: 'Rigil Kentaurus', text: 'Rigil Kentaurus (Alpha Centauri A) — the Sun\u2019s near-twin, 4.3 light-years away.' },
+      { q: "Barnard's Star", text: 'Barnard\u2019s Star — the fastest-moving star in our sky, racing across the constellations.' },
+      { q: 'Sirius', text: 'Sirius — the brightest star in the night sky, about twice the mass of the Sun.' },
+      { q: 'Vega', text: 'Vega — a brilliant young star that was, and will again be, the pole star.' },
+    ],
+  },
+  {
+    id: 'deepsky',
+    title: 'Famous Deep-Sky Objects',
+    description: 'Nebulae, clusters and a supermassive black hole.',
+    stops: [
+      { q: 'Orion Nebula', text: 'The Orion Nebula — a stellar nursery 1,344 light-years away.' },
+      { q: 'Pleiades', text: 'The Pleiades — a young open cluster of hot, blue stars.' },
+      { q: 'Crab Nebula', text: 'The Crab Nebula — the wreckage of a supernova recorded in 1054 AD.' },
+      { q: 'Ring Nebula', text: 'The Ring Nebula — a dying star shedding its outer layers into space.' },
+      { q: 'Hercules Cluster', text: 'The Hercules Cluster — a swarm of hundreds of thousands of ancient stars.' },
+      { q: 'Sagittarius A*', text: 'Sagittarius A* — the supermassive black hole at the centre of the Milky Way.' },
+    ],
+  },
+  {
+    id: 'outside',
+    title: 'Beyond the Milky Way',
+    description: 'Other galaxies, millions of light-years away.',
+    stops: [
+      { q: 'Andromeda Galaxy', text: 'The Andromeda Galaxy — the nearest large galaxy, 2.5 million light-years away.' },
+      { q: 'Triangulum Galaxy', text: 'The Triangulum Galaxy — the third-largest member of our Local Group.' },
+      { q: 'Whirlpool Galaxy', text: 'The Whirlpool Galaxy — a classic spiral caught interacting with a companion.' },
+      { q: 'Centaurus A', text: 'Centaurus A — a galaxy with a striking dust lane and a bright radio core.' },
+      { q: 'Sombrero Galaxy', text: 'The Sombrero Galaxy — a galaxy seen edge-on, 31 million light-years away.' },
+    ],
+  },
+]
+
+let tour = null
+function resolveStop(stop) {
+  if (stop.type && stop.id) return { type: stop.type, id: stop.id }
+  const hits = searchIndex(stop.q || stop.label || '')
+  return hits.length ? { type: hits[0].type, id: hits[0].id } : null
+}
+function playTour(t) {
+  tour = { ...t, i: 0 }
+  ui.closePanels()
+  showTourStop()
+}
+function showTourStop() {
+  const stop = tour.stops[tour.i]
+  const target = resolveStop(stop)
+  const last = tour.i === tour.stops.length - 1
+  if (target) selectById(target.type, target.id)
+  ui.showCaption({
+    title: tour.title,
+    text: stop.text || '',
+    index: tour.i,
+    total: tour.stops.length,
+    last,
+    onNext: () => {
+      if (last) exitTour()
+      else {
+        tour.i++
+        showTourStop()
+      }
+    },
+    onPrev: () => {
+      if (tour.i > 0) {
+        tour.i--
+        showTourStop()
+      }
+    },
+    onStop: exitTour,
+  })
+}
+function exitTour() {
+  tour = null
+  ui.hideCaption()
+}
+
+// --- Bookmarks (localStorage) ----------------------------------------------
+const BOOKMARK_KEY = 'luna.bookmarks'
+let bookmarks = []
+function loadBookmarks() {
+  try {
+    bookmarks = JSON.parse(localStorage.getItem(BOOKMARK_KEY) || '[]')
+    if (!Array.isArray(bookmarks)) bookmarks = []
+  } catch {
+    bookmarks = []
+  }
+  ui.setBookmarks(bookmarks)
+}
+function saveBookmarks() {
+  try {
+    localStorage.setItem(BOOKMARK_KEY, JSON.stringify(bookmarks))
+  } catch {
+    /* storage may be unavailable (private mode) — the session still works */
+  }
+  ui.setBookmarks(bookmarks)
+}
+const isBookmarked = (it) =>
+  !!it && bookmarks.some((b) => b.type === it.type && b.id === it.id)
+function toggleBookmark() {
+  if (!current) return
+  if (isBookmarked(current)) {
+    bookmarks = bookmarks.filter((b) => !(b.type === current.type && b.id === current.id))
+    ui.toast('Removed from saved places')
+  } else {
+    bookmarks.push({ type: current.type, id: current.id, label: current.label, kind: current.kind })
+    ui.toast('Saved place')
+  }
+  saveBookmarks()
+  refreshActions()
+}
+function removeBookmark(b) {
+  bookmarks = bookmarks.filter((x) => !(x.type === b.type && x.id === b.id))
+  saveBookmarks()
+  refreshActions()
+}
+
+// --- Share ------------------------------------------------------------------
+async function shareView() {
+  syncHash()
+  const url = location.href
+  try {
+    await navigator.clipboard.writeText(url)
+    ui.toast('Link copied to clipboard')
+  } catch {
+    ui.toast(url)
+  }
+}
+
+// --- Time machine -----------------------------------------------------------
+const TIME_LIMIT = 100000 // years either side of now
+const TIME_SPEED = 4000 // years per second while playing
+let simYears = 0
+let timePlaying = false
+
+function setSimYears(y) {
+  simYears = Math.max(-TIME_LIMIT, Math.min(TIME_LIMIT, y))
+  applyStarTime(simYears)
+  layoutSolar(simYears)
+  ui.setTime(simYears, timePlaying)
+  syncHash()
+}
+function toggleTimePlay() {
+  timePlaying = !timePlaying
+  ui.setTime(simYears, timePlaying)
+  if (!timePlaying) syncHash()
+}
+function resetTime() {
+  timePlaying = false
+  setSimYears(0)
+}
+
+// --- Deep links (URL hash) --------------------------------------------------
+function syncHash() {
+  const parts = []
+  if (current) parts.push(`sel=${current.type}:${current.id}`)
+  if (Math.round(simYears) !== 0) parts.push(`t=${Math.round(simYears)}`)
+  const off = LAYERS.filter((l) => !layerState[l.id]).map((l) => l.id)
+  if (off.length) parts.push(`off=${off.join(',')}`)
+  const hash = parts.length ? `#${parts.join('&')}` : ''
+  const want = location.pathname + location.search + hash
+  if (location.pathname + location.search + location.hash !== want) {
+    history.replaceState(null, '', want)
+  }
+}
+function applyHash() {
+  const raw = location.hash.replace(/^#/, '')
+  if (!raw) return
+  const params = new URLSearchParams(raw)
+  const off = params.get('off')
+  if (off) for (const id of off.split(',')) setLayer(id, false, { silent: true })
+  const t = params.get('t')
+  if (t !== null && !Number.isNaN(Number(t))) setSimYears(Number(t))
+  const sel = params.get('sel')
+  if (sel) {
+    const i = sel.indexOf(':')
+    if (i > 0) selectById(sel.slice(0, i), sel.slice(i + 1))
+  }
+}
+
+// --- Scale bar + mini-map ---------------------------------------------------
+const LY_PER_PC = 3.261563
+function niceNumber(v) {
+  if (!isFinite(v) || v <= 0) return 1
+  const e = Math.pow(10, Math.floor(Math.log10(v)))
+  const f = v / e
+  const m = f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10
+  return m * e
+}
+function formatDistance(pc) {
+  const ly = pc * LY_PER_PC
+  if (ly >= 1e6) return `${(ly / 1e6).toFixed(ly >= 1e7 ? 0 : 1)} Mly`
+  if (ly >= 1000) return `${(ly / 1000).toFixed(ly >= 10000 ? 0 : 1)} kly`
+  return `${Math.round(ly)} ly`
+}
+function updateScalebar() {
+  const dist = camera.position.distanceTo(controls.target)
+  const perPixel =
+    (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * dist) / window.innerHeight
+  const nicePc = niceNumber(perPixel * 120)
+  const width = Math.max(12, Math.round(nicePc / perPixel))
+  scalebarLine.style.width = `${width}px`
+  scalebarLabel.textContent = formatDistance(nicePc)
+}
+let lastMinimap = 0
+function updateMinimap() {
+  const now = performance.now()
+  if (now - lastMinimap < 80) return
+  lastMinimap = now
+  minimap.update({ cameraPos: camera.position, target: controls.target, selected: selectedWorld })
+}
+
 // --- Selection / search -----------------------------------------------------
 const ui = createUI({
   onQuery: (q) => searchIndex(q),
   onSelect: (item) => selectById(item.type, item.id),
+  onToggleLayer: (id, on) => setLayer(id, on),
+  onTour: (t) => playTour(t),
+  onToggleBookmark: () => toggleBookmark(),
+  onRemoveBookmark: (b) => removeBookmark(b),
+  onShare: () => shareView(),
+  onTimeChange: (y) => {
+    timePlaying = false
+    setSimYears(y)
+  },
+  onTimePlay: () => toggleTimePlay(),
+  onTimeReset: () => resetTime(),
 })
+
+// The currently-open object, remembered so it can be saved / shared / linked.
+let current = null
+let selectedWorld = null
+
+function refreshActions() {
+  if (!current) return ui.setActions([])
+  const saved = isBookmarked(current)
+  ui.setActions([
+    {
+      label: saved ? '★ Saved' : '☆ Save',
+      active: saved,
+      onClick: toggleBookmark,
+    },
+    { label: 'Share', onClick: shareView },
+  ])
+}
 
 function selectById(type, id) {
   portraitToken++
   const token = portraitToken
+  let label = null
+  let kind = null
   if (type === 'star') {
     const s = starById.get(id)
     if (!s) return
+    label = s.name
+    kind = 'Star'
     ui.showInfo(renderStarInfo(s))
-    flyTo(new THREE.Vector3(s.x, s.y, s.z), 4)
+    selectedWorld = new THREE.Vector3(s.x, s.y, s.z)
+    flyTo(selectedWorld, 4)
     upgradePortrait('star', s, token)
   } else if (type === 'exoplanet') {
     const p = planetById.get(id)
     if (!p) return
+    label = p.name
+    kind = 'Exoplanet'
     ui.showInfo(renderPlanetInfo(p))
     const host = starById.get(p.hostId)
-    if (host) flyTo(new THREE.Vector3(host.x, host.y, host.z), 4)
+    if (host) {
+      selectedWorld = new THREE.Vector3(host.x, host.y, host.z)
+      flyTo(selectedWorld, 4)
+    }
     upgradePortrait('exoplanet', p, token)
   } else if (type === 'solar') {
     const b = solarById.get(id)
     if (!b) return
+    label = b.userData.name
+    kind = 'Solar System'
     ui.showInfo(renderSolarInfo(b.userData.data))
     const r = b.userData.displayR
-    flyTo(b.position.clone(), Math.max(0.004, r * 8))
+    selectedWorld = b.position.clone()
+    flyTo(selectedWorld, Math.max(0.004, r * 8))
     upgradePortrait('solar', b.userData.data, token)
   } else if (type === 'deepsky') {
     const o = deepSkyById.get(id)
     if (!o) return
+    label = o.name
+    kind = 'Deep sky'
     ui.showInfo(renderDeepSkyInfo(o))
     const spr = deepsky.sprite(id)
     const target = spr ? spr.position.clone() : deepsky.worldPosition(o)
+    selectedWorld = target.clone()
     const r = spr ? spr.scale.x : 40
     flyTo(target, Math.max(30, r * 3))
     upgradePortrait('deepsky', o, token)
+  } else {
+    return
   }
+  current = { type, id, label, kind }
+  refreshActions()
+  syncHash()
 }
 
 // searchable things: solar bodies, planets, then stars
@@ -758,7 +1207,7 @@ function buildSearchIndex() {
     searchables.push({
       label: o.name,
       kind: 'Deep sky',
-      q: o.name.toLowerCase(),
+      q: `${o.name} ${o.messier || ''}`.toLowerCase(),
       type: 'deepsky',
       id: o.id,
       rank: (o.magnitude ?? 20) * 0.02 - (o.notable ? 1 : 0),
@@ -766,13 +1215,17 @@ function buildSearchIndex() {
 }
 
 function searchIndex(query) {
-  const q = query.toLowerCase()
+  const q = query.toLowerCase().trim()
+  // "m31" and "M 31" should find the Messier object stored as "M031".
+  const qMessier = q.replace(/^m\s*(\d{1,3})$/, (_, d) => `m${d.padStart(3, '0')}`)
   const hits = []
   for (const it of searchables) {
-    const idx = it.q.indexOf(q)
+    let idx = it.q.indexOf(q)
+    if (idx === -1 && qMessier !== q) idx = it.q.indexOf(qMessier)
     if (idx === -1) continue
     // exact < startsWith < contains; tie-break by rank
-    const score = (idx === 0 ? (it.q === q ? -100 : -50) : 0) + it.rank
+    const exact = it.q === q || it.q === qMessier
+    const score = (idx === 0 ? (exact ? -100 : -50) : 0) + it.rank
     hits.push({ it, score })
   }
   hits.sort((a, b) => a.score - b.score)
@@ -840,7 +1293,10 @@ window.addEventListener('resize', () => {
 })
 
 // --- Render loop ------------------------------------------------------------
+const clock = new THREE.Clock()
 renderer.setAnimationLoop(() => {
+  const dt = Math.min(0.1, clock.getDelta())
+
   if (fly) {
     fly.t += 1 / 60
     const k = easeInOut(Math.min(1, fly.t / fly.dur))
@@ -851,16 +1307,36 @@ renderer.setAnimationLoop(() => {
       controls.enabled = true
     }
   }
+
+  // Time machine: slide the real stars (proper motion) and the planets along
+  // their orbits.
+  if (timePlaying) {
+    simYears = Math.max(-TIME_LIMIT, Math.min(TIME_LIMIT, simYears + TIME_SPEED * dt))
+    applyStarTime(simYears)
+    layoutSolar(simYears)
+    ui.setTime(simYears, timePlaying)
+    if (Math.abs(simYears) >= TIME_LIMIT) {
+      timePlaying = false
+      ui.setTime(simYears, false)
+      syncHash()
+    }
+  }
+
   // Fade the decorative galaxy out as we dive into the Solar System.
   if (backdrop) {
-    const d = camera.position.length()
-    const target = THREE.MathUtils.clamp((d - 3) / 40, 0, 0.6)
-    const u = backdrop.material.uniforms.uOpacity
-    u.value += (target - u.value) * 0.1
+    backdrop.visible = backdropOn
+    if (backdropOn) {
+      const d = camera.position.length()
+      const target = THREE.MathUtils.clamp((d - 3) / 40, 0, 0.6)
+      const u = backdrop.material.uniforms.uOpacity
+      u.value += (target - u.value) * 0.1
+    }
   }
   controls.update()
   deepsky.upgradeNearby(camera.position, { radius: 700, budget: 2 })
   composer.render()
+  updateScalebar()
+  updateMinimap()
   // Only paint the label overlay when labels actually exist (none yet).
   if (labelRenderer.domElement.childElementCount > 0) labelRenderer.render(scene, camera)
 })
@@ -896,6 +1372,20 @@ async function start() {
   pickTargets.push(starPoints, ...solarMeshes)
   updatePointScale()
 
+  // HUD: restore any deep link first (so the layer checkboxes reflect it),
+  // then wire the panels.
+  applyHash()
+  renderLayers()
+  document.getElementById('layers-reset')?.addEventListener('click', () => {
+    enableAllLayers()
+    renderLayers()
+    syncHash()
+    ui.toast('All layers shown')
+  })
+  ui.setTours(TOURS)
+  loadBookmarks()
+  ui.setTime(simYears, timePlaying)
+
   window.__luna = {
     starCount: stars.length,
     planetCount: planets.length,
@@ -908,6 +1398,32 @@ async function start() {
     search: (q) => searchIndex(q),
     select: (type, id) => selectById(type, id),
     infoHtml: () => document.getElementById('info-body')?.innerHTML || '',
+    // --- new API surface for the feature set / tests ---
+    layers: () => ({ ...layerState }),
+    setLayer: (id, on) => setLayer(id, on),
+    enableAllLayers,
+    tours: () => TOURS.map((t) => ({ id: t.id, title: t.title, stops: t.stops.length })),
+    playTour: (id) => {
+      const t = TOURS.find((x) => x.id === id)
+      if (t) playTour(t)
+    },
+    captionHtml: () => document.getElementById('caption')?.innerHTML || '',
+    bookmarks: () => bookmarks.slice(),
+    save: () => toggleBookmark(),
+    time: (y) => {
+      timePlaying = false
+      setSimYears(y)
+    },
+    timeYears: () => simYears,
+    isExtragalactic: (id) => isExtragalactic(deepSkyById.get(id)),
+    selected: () => current,
+    solarXYZ: () =>
+      Object.fromEntries([...solarPosition].map(([k, v]) => [k, [+v.x.toFixed(6), +v.y.toFixed(6), +v.z.toFixed(6)]])),
+    starXYZ: (id) => {
+      const s = starById.get(id)
+      return s ? [+s.x.toFixed(4), +s.y.toFixed(4), +s.z.toFixed(4)] : null
+    },
+    hash: () => location.hash,
   }
   console.log(
     `Luna: ${stars.length} stars, ${planets.length} planets, ${solarMeshes.length} solar bodies, ${deepSkyObjects.length} deep-sky objects.`,

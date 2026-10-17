@@ -143,7 +143,12 @@ export function createDeepSky(scene, { imageUrl = null } = {}) {
 
   let points = null
   let objects = []
+  let baseSizes = null
+  let filterFn = null
+  let pointsOn = true
+  let spritesOn = true
   const sprites = new Map() // id -> Sprite
+  const byId = new Map() // id -> object
   const portraitCache = new Map() // id -> dataUrl
 
   function positionOf(o) {
@@ -156,6 +161,8 @@ export function createDeepSky(scene, { imageUrl = null } = {}) {
 
   function load(list) {
     objects = list
+    byId.clear()
+    for (const o of list) byId.set(o.id, o)
     const n = list.length
     const positions = new Float32Array(n * 3)
     const colors = new Float32Array(n * 3)
@@ -180,6 +187,7 @@ export function createDeepSky(scene, { imageUrl = null } = {}) {
     g.setAttribute('aColor', new THREE.BufferAttribute(colors, 3))
     g.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
     g.setAttribute('aType', new THREE.BufferAttribute(types, 1))
+    baseSizes = sizes.slice()
     points = new THREE.Points(g, material)
     points.frustumCulled = false
     points.renderOrder = -0.5
@@ -212,6 +220,7 @@ export function createDeepSky(scene, { imageUrl = null } = {}) {
       const url = imageUrl ? imageUrl(o.id) : null
       if (url) pending.set(o.id, { spr, url, pos: new THREE.Vector3(x, y, z) })
     }
+    refresh()
   }
 
   // Fetch and apply real photographs for notable objects near the camera.
@@ -249,6 +258,41 @@ export function createDeepSky(scene, { imageUrl = null } = {}) {
     group.visible = on
   }
 
+  // Show/hide whole sub-layers, and/or filter objects. Hiding a point is done by
+  // zeroing its size, so the single draw call is preserved (no rebuild).
+  function refresh() {
+    if (points) {
+      const attr = points.geometry.getAttribute('aSize')
+      for (let i = 0; i < objects.length; i++) {
+        const pass = !filterFn || filterFn(objects[i])
+        attr.setX(i, pass ? baseSizes[i] : 0)
+      }
+      attr.needsUpdate = true
+      points.visible = pointsOn
+    }
+    for (const [id, spr] of sprites) {
+      spr.visible = spritesOn && (!filterFn || filterFn(byId.get(id)))
+    }
+  }
+  function setFilter(fn) {
+    filterFn = fn
+    refresh()
+  }
+  function setPointsVisible(on) {
+    pointsOn = on
+    refresh()
+  }
+  function setSpritesVisible(on) {
+    spritesOn = on
+    refresh()
+  }
+  function isVisibleAt(i) {
+    if (!points || !points.visible) return false
+    const o = objects[i]
+    if (!o) return false
+    return !filterFn || filterFn(o)
+  }
+
   function portrait(o) {
     if (portraitCache.has(o.id)) return portraitCache.get(o.id)
     const url = deepSkyCanvas(o, 220).toDataURL('image/png')
@@ -265,6 +309,10 @@ export function createDeepSky(scene, { imageUrl = null } = {}) {
     load,
     updateScale,
     setVisible,
+    setFilter,
+    setPointsVisible,
+    setSpritesVisible,
+    isVisibleAt,
     upgradeNearby,
     portrait,
     worldPosition: (o) => {
