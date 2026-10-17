@@ -859,6 +859,7 @@ renderer.setAnimationLoop(() => {
     u.value += (target - u.value) * 0.1
   }
   controls.update()
+  deepsky.upgradeNearby(camera.position, { radius: 700, budget: 2 })
   composer.render()
   // Only paint the label overlay when labels actually exist (none yet).
   if (labelRenderer.domElement.childElementCount > 0) labelRenderer.render(scene, camera)

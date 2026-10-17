@@ -207,21 +207,37 @@ export function createDeepSky(scene, { imageUrl = null } = {}) {
       group.add(spr)
       sprites.set(o.id, spr)
 
-      // Upgrade the procedural portrait to a real photograph when we have one.
+      // Queue the real photograph; it is fetched lazily as the camera nears the
+      // object, so we never pull ~13 MB of images up front.
       const url = imageUrl ? imageUrl(o.id) : null
-      if (url) {
-        loadImage(url).then((img) => {
-          if (!img) return
-          const tex = new THREE.CanvasTexture(maskedPhotoCanvas(img, 192))
-          tex.colorSpace = THREE.SRGBColorSpace
-          tex.minFilter = THREE.LinearMipmapLinearFilter
-          const old = spr.material.map
-          spr.material.map = tex
-          spr.material.opacity = 0.92
-          spr.material.needsUpdate = true
-          if (old) old.dispose()
-        })
-      }
+      if (url) pending.set(o.id, { spr, url, pos: new THREE.Vector3(x, y, z) })
+    }
+  }
+
+  // Fetch and apply real photographs for notable objects near the camera.
+  const pending = new Map()
+  let lastUpgrade = 0
+  function upgradeNearby(cameraPos, { radius = 600, budget = 3 } = {}) {
+    if (!pending.size) return
+    const now = performance.now()
+    if (now - lastUpgrade < 250) return
+    lastUpgrade = now
+    let done = 0
+    for (const [id, item] of pending) {
+      if (item.pos.distanceTo(cameraPos) > radius) continue
+      pending.delete(id)
+      loadImage(item.url).then((img) => {
+        if (!img) return
+        const tex = new THREE.CanvasTexture(maskedPhotoCanvas(img, 192))
+        tex.colorSpace = THREE.SRGBColorSpace
+        tex.minFilter = THREE.LinearMipmapLinearFilter
+        const old = item.spr.material.map
+        item.spr.material.map = tex
+        item.spr.material.opacity = 0.92
+        item.spr.material.needsUpdate = true
+        if (old) old.dispose()
+      })
+      if (++done >= budget) break
     }
   }
 
@@ -249,6 +265,7 @@ export function createDeepSky(scene, { imageUrl = null } = {}) {
     load,
     updateScale,
     setVisible,
+    upgradeNearby,
     portrait,
     worldPosition: (o) => {
       const [x, y, z] = positionOf(o)
