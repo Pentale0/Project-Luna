@@ -402,6 +402,8 @@ function buildSolarSystem(list) {
           emissiveIntensity: 0.12,
         })
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 32, 32), mat)
+    if (!isSun && !isMoon) mesh.rotation.x = Math.PI / 2
+    if (isMoon) mesh.rotation.x = Math.PI / 2
     mesh.userData = {
       type: 'solar',
       id: b.id,
@@ -480,7 +482,7 @@ function buildSolarSystem(list) {
             depthWrite: false,
           }),
         )
-        ring.rotation.x = Math.PI / 2
+        ring.rotation.x = 0
         ring.position.copy(rec.mesh.position)
         solarGroup.add(ring)
         rec.ring = ring
