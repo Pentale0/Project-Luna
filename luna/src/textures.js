@@ -77,6 +77,24 @@ function applySphereShade(ctx, size) {
   ctx.restore()
 }
 
+// A soft round glow used for the Solar System "beacons". A SpriteMaterial with
+// no map draws a solid billboard *square*, which leaves a faint box behind every
+// world; this supplies a radial, edge-faded texture so the glow reads as light.
+// Drawn white with a pure alpha falloff so the sprite's `color` tints it.
+export function glowSpriteCanvas(size = 128) {
+  const c = canvas(size)
+  const ctx = c.getContext('2d')
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  g.addColorStop(0.0, 'rgba(255,255,255,1)')
+  g.addColorStop(0.1, 'rgba(255,255,255,0.8)')
+  g.addColorStop(0.3, 'rgba(255,255,255,0.26)')
+  g.addColorStop(0.6, 'rgba(255,255,255,0.06)')
+  g.addColorStop(1.0, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, size, size)
+  return c
+}
+
 function radial(rand, x0, y0, r0, r1, stops) {
   return { rand, x0, y0, r0, r1, stops }
 }

@@ -8,7 +8,7 @@ import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { createUI } from './ui.js'
 import { createDeepSky } from './deepsky.js'
 import { createMinimap } from './minimap.js'
-import { fetchPhoto, starCanvas, exoplanetCanvas, solarBodyCanvas, hashSeed, planetPortraitFromUrl } from './textures.js'
+import { fetchPhoto, starCanvas, exoplanetCanvas, solarBodyCanvas, hashSeed, planetPortraitFromUrl, glowSpriteCanvas } from './textures.js'
 
 // ---------------------------------------------------------------------------
 // Luna — a "Google Maps for the stars".
@@ -42,8 +42,20 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 document.querySelector('#app').appendChild(renderer.domElement)
 const composer = new EffectComposer(renderer)
 composer.addPass(new RenderPass(scene, camera))
-const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.15, 1.0, 0.22)
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.6, 0.26)
 composer.addPass(bloom)
+
+// Bloom sells the galaxy view but wrecks close-up legibility: flying to Earth,
+// the Sun's halo washed the planet right out. Ramp strength with zoom instead
+// of holding it flat — nearly off inside the Solar System, full out in the
+// star cloud. (Reads camera↔target distance, i.e. how far we are *looking*.)
+const BLOOM_FAR = 1.0
+const BLOOM_NEAR = 0.1
+function updateBloom() {
+  const d = camera.position.distanceTo(controls.target)
+  const k = THREE.MathUtils.smoothstep(d, 0.01, 8)
+  bloom.strength = BLOOM_NEAR + (BLOOM_FAR - BLOOM_NEAR) * k
+}
 
 // CSS2D label overlay (kept for future labels; nothing attaches a CSS2DObject
 // yet). The render loop below only paints it once a label exists, so the extra
@@ -365,6 +377,12 @@ function orbitLineGeometry(radius) {
   return new THREE.BufferGeometry().setFromPoints(pts)
 }
 
+// One shared, round glow map for every Solar System beacon. Without a `map` a
+// SpriteMaterial renders as a solid billboard *square* — the faint boxes that
+// used to ring each world. This is radial and fully transparent at the corners.
+const GLOW_TEXTURE = new THREE.CanvasTexture(glowSpriteCanvas(128))
+GLOW_TEXTURE.colorSpace = THREE.SRGBColorSpace
+
 function buildSolarSystem(list) {
   const GOLDEN = 2.399963229728653
   list.forEach((b, i) => {
@@ -469,16 +487,20 @@ function buildSolarSystem(list) {
       })
     }
 
-    // a soft glow so tiny worlds are still findable / clickable
+    // a soft glow so tiny worlds are still findable / clickable.
+    // `map` is essential: without one the sprite draws a hard-edged square.
+    // The Sun's halo is kept well inside Earth's orbit (r*10 ≈ 0.0055 pc vs
+    // Earth at 0.0075 pc) so it never swallows the planet you're flying to.
     const glowMat = new THREE.SpriteMaterial({
+      map: GLOW_TEXTURE,
       color: BODY_COLOR[b.id] || 0xcccccc,
       transparent: true,
-      opacity: isSun ? 0.5 : 0.32,
+      opacity: isSun ? 0.42 : 0.3,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
     const glow = new THREE.Sprite(glowMat)
-    glow.scale.setScalar(r * (isSun ? 14 : 9))
+    glow.scale.setScalar(r * (isSun ? 10 : 9))
     solarGroup.add(glow)
     rec.glow = glow
   })
@@ -1333,6 +1355,7 @@ renderer.setAnimationLoop(() => {
     }
   }
   controls.update()
+  updateBloom()
   deepsky.upgradeNearby(camera.position, { radius: 700, budget: 2 })
   composer.render()
   updateScalebar()
@@ -1424,6 +1447,25 @@ async function start() {
       return s ? [+s.x.toFixed(4), +s.y.toFixed(4), +s.z.toFixed(4)] : null
     },
     hash: () => location.hash,
+    // Current bloom strength — ramps down as the camera dives in so close-ups
+    // (e.g. Earth next to the Sun) stay readable.
+    bloomStrength: () => +bloom.strength.toFixed(4),
+    // Alpha of a body's glow map at the corner / edge / centre. A square
+    // billboard would show a high corner; the round map must be 0 there.
+    glowAlpha: (id) => {
+      const rec = solarBodies.find((b) => b.id === id)
+      const img = rec && rec.glow ? rec.glow.material.map && rec.glow.material.map.image : null
+      if (!img || !img.width) return null
+      const c = document.createElement('canvas')
+      c.width = img.width
+      c.height = img.height
+      const g = c.getContext('2d')
+      g.drawImage(img, 0, 0)
+      const px = g.getImageData(0, 0, img.width, img.height).data
+      const a = (x, y) => px[(y * img.width + x) * 4 + 3]
+      const m = img.width >> 1
+      return { corner: a(1, 1), edge: a(img.width - 3, m), center: a(m, m) }
+    },
   }
   console.log(
     `Luna: ${stars.length} stars, ${planets.length} planets, ${solarMeshes.length} solar bodies, ${deepSkyObjects.length} deep-sky objects.`,
